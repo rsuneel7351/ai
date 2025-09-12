@@ -37,7 +37,6 @@ export class OpenRouterService {
   private chroma: ChromaClient;
   private openai: OpenAI;
   private openAiKey: string
-  // ✅ in-memory history store (you can replace with DB like Redis/Mongo later)
   private userHistories: Map<number, OpenRouterMessage[]> = new Map();
 
   constructor() {
@@ -60,11 +59,9 @@ export class OpenRouterService {
   }
   async embedText(text: string): Promise<number[]> {
     const response = await this.openai.embeddings.create({
-      model: "text-embedding-3-small", // or "text-embedding-3-large"
+      model: "text-embedding-3-small",
       input: text,
     });
-
-    console.log("✅ Embedding response:", response);
     return response.data[0].embedding;
   }
 
@@ -72,21 +69,8 @@ export class OpenRouterService {
   private async chatCompletion(
     messages: OpenRouterMessage[],
     model: string = "gpt-4.1"
-    // model: string = "nvidia/nemotron-nano-9b-v2:free"
   ): Promise<string> {
     try {
-      // const response = await axios.post<OpenRouterResponse>(
-      //   "https://openrouter.ai/api/v1/chat/completions",
-      //   { model, messages },
-      //   {
-      //     headers: {
-      //       Authorization: `Bearer ${this.apiKey}`,
-      //       "HTTP-Referer": this.siteUrl,
-      //       "X-Title": this.siteName,
-      //       "Content-Type": "application/json",
-      //     },
-      //   }
-      // );
       const response = await axios.post<OpenAIResponse>(
         "https://api.openai.com/v1/chat/completions",
         {
@@ -151,104 +135,6 @@ export class OpenRouterService {
   }
 
 
-  // async generateReply(userMessage: string, userId: number): Promise<string> {
-  //   const blogContext = await this.fetchBlogAnswer(userMessage);
-  //   const history: OpenRouterMessage[] = this.userHistories.get(userId) ?? [];
-
-  //   // ✅ SYSTEM MESSAGE ME TOOL CALLING KA RULE
-  //   const systemMessage: OpenRouterMessage = {
-  //     role: "system",
-  //     content: `
-  //       You are KC GlobedBot, a finance LMS agent.
-
-  //       If the user asks about courses (name, description, price, duration, rating, etc),
-  //       you MUST respond with a JSON tool call in this format:
-  //       {
-  //         "tool": "query_courses",
-  //         "sql": "SELECT ..."
-  //       }
-
-  //       Rules for tool:
-  //       - Only SELECT queries
-  //       - Only on "courses_course" table
-  //       - Allowed columns:
-  //         id, name, short_description, description, requirements,
-  //         duration, price, discount, total_reviews, total_video_duration,
-  //         total_questions, avg_rating, objectives_summary, features,
-  //         status, image, banner_image, created_at, updated_at,
-  //         assessment_test_testlet, assessment_test_each, mock_test_pattern
-
-  //       If the query is not about courses, just answer normally.
-  //       ${blogContext ? `\n\n📚 Blog context:\n${blogContext}` : ""}
-  //     `,
-  //   };
-
-  //   const newUserMessage: OpenRouterMessage = { role: "user", content: userMessage };
-  //   const messages: OpenRouterMessage[] = [systemMessage, ...history, newUserMessage];
-
-  //   const reply = await this.chatCompletion(messages);
-
-  //   // ✅ TOOL CALL DETECT KARO
-  //   if (reply.startsWith("{") && reply.includes('"tool": "query_courses"')) {
-  //     try {
-  //       const toolCall = JSON.parse(reply);
-  //       const sql = toolCall.sql;
-
-  //       // ✅ Basic checks
-  //       if (!sql || typeof sql !== "string") {
-  //         throw new Error("Missing or invalid SQL.");
-  //       }
-  //       if (!sql.toLowerCase().startsWith("select")) {
-  //         throw new Error("Only SELECT queries are allowed.");
-  //       }
-  //       if (!sql.toLowerCase().includes("courses_course")) {
-  //         throw new Error("Query must target the 'courses_course' table.");
-  //       }
-
-  //       // ✅ Run DB query
-  //       const result = await pool.query(sql);
-
-  //       // ✅ Convert DB result → natural reply
-  //       return await this.chatCompletion([
-  //         {
-  //           role: "system",
-  //           content: "Convert SQL query results into a clear natural language answer for the user.",
-  //         },
-  //         {
-  //           role: "user",
-  //           content: `User asked: "${userMessage}". SQL result: ${JSON.stringify(result.rows)}`,
-  //         },
-  //       ]);
-
-  //     } catch (err: any) {
-  //       console.error("⚠️ SQL execution failed, falling back:", err.message || err);
-
-  //       // ✅ Fallback → still return a useful answer
-  //       return await this.chatCompletion([
-  //         {
-  //           role: "system",
-  //           content: `
-  //             You are a helpful finance LMS assistant. 
-  //             The database query tool failed, but you should still answer the user naturally.
-  //             Use your general knowledge and context to provide a useful response.
-  //             Do NOT mention tool failure to the user.
-  //           `,
-  //         },
-  //         {
-  //           role: "user",
-  //           content: `Original question: "${userMessage}"`,
-  //         },
-  //       ]);
-  //     }
-  //   }
-
-
-
-  //   // ✅ Normal reply if no tool call
-  //   return reply;
-  // }
-
-
   async generateReply(userMessage: string, userId: number): Promise<string> {
     const blogContext = await this.fetchBlogAnswer(userMessage);
     const history: OpenRouterMessage[] = this.userHistories.get(userId) ?? [];
@@ -256,36 +142,57 @@ export class OpenRouterService {
     const systemMessage: OpenRouterMessage = {
       role: "system",
       content: `
-        If the user asks about **courses, subjects, course-subject mappings, chapters, or subject-chapter mappings**,  
-      you MUST respond with a JSON tool call in this format:
-      { "tool": "<tool_name>", "sql": "SELECT ..." }
-  
-        Available tools:
-        ${buildToolContext()}
-        {
-        "tables": {
-          "courses_course": ["id", "name"],
-          "courses_subjects": ["id", "name", "course_id"],
-          "courses_subjectchapters": ["id", "subject_id", "chapter_id"],
-          "courses_chapters": ["id", "name"]
-        },
-        "relations": [
-          "courses_course.id = courses_subjects.course_id",
-          "courses_subjects.id = courses_subjectchapters.subject_id",
-          "courses_chapters.id = courses_subjectchapters.chapter_id"
-        ]
-      }
+    👋 Hello! You are **Kc GlobedBot**, a knowledgeable finance assistant.  
+    You specialize in US CPA, US CMA, US Taxation, Accounting, and all finance-related topics.  
+    
+    💡 Your main role:  
+    - Always provide answers related to **finance, accounting, taxation, courses, subjects, chapters, and finance education**.  
+    - You also act as a **RAG (Retrieval-Augmented Generation) assistant**, so if there is contextual blog knowledge available, you should incorporate it naturally in your answers.  
+    
+    🛠 Tool usage instructions:  
+    If the user asks about **courses, subjects, course-subject mappings, chapters, or subject-chapter mappings**,  
+    you MUST respond with a JSON **tool call** in this exact format:
+    
+    {
+      "tool": "<tool_name>", 
+      "sql": "SELECT ..."
+    }
+    
+    ✅ Available tools dynamically detected:  
+    ${buildToolContext()}
+      ✅ Available tables:
+      - questions_questioncontents
+      - questions_questionoptions
+      - questions_testquestions
+      - questions_questionexhibits
+      - questions_simulationquestionanswers
+      - questions_mocktesthelps
+      - courses_topics
+      - courses_chapters
+      - courses_subjects
+      - courses_course
+      - questions_testquestions 
+      - questions_questioncontents
 
-        Rules for tools:
-        - Only SELECT queries
-        - Only the specified table per tool
-        - Only allowed columns
-        - For course-subject queries, always return subject names instead of IDs
-  
-        If the query is not about these tables, just answer normally.
-        ${blogContext ? `\n\n📚 Blog context:\n${blogContext}` : ""}
-      `,
+    ⚠️ Rules for tools:  
+    - Only SELECT queries are allowed.  
+    - Only allowed columns should be accessed.  
+    - For course-subject queries, always return **subject names instead of IDs**.  
+    - Never invent data — always fetch from the database when relevant.  
+    
+    📚 Context:  
+    ${blogContext ? `Use the following blog context to enrich your answer:\n${blogContext}` : "No blog context available."}
+    
+    📝 Style guidelines for answers:  
+    - Be descriptive and explanatory, like a finance instructor.  
+    - Use examples if necessary, especially for accounting, taxation, or course-related queries.  
+    - Keep all answers **finance-focused**.  
+    - If the question is unrelated to finance courses or content, answer politely but do not include unrelated topics.  
+    
+    Your responses should always sound **authoritative, professional, and finance-oriented**, and only call tools when necessary.
+      `
     };
+
 
     const newUserMessage: OpenRouterMessage = { role: "user", content: userMessage };
     const messages: OpenRouterMessage[] = [systemMessage, ...history, newUserMessage];

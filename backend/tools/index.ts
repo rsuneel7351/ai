@@ -69,6 +69,18 @@ export const TOOLS: Record<
             return { rows: result.rows };
         },
     },
+    query_questions: {
+        execute: async ({ sql }) => {
+            if (
+                !sql.toLowerCase().includes("questions_testquestions") ||
+                !sql.toLowerCase().includes("questions_questioncontents")
+            ) {
+                return { rows: [], error: "Query must target questions_testquestions or questions_questioncontents." };
+            }
+            const result = await pool.query(sql);
+            return { rows: result.rows };
+        },
+    },
 };
 
 export function buildToolContext() {
@@ -100,5 +112,26 @@ export function buildToolContext() {
       Must JOIN "courses_subjectchapters" with "courses_chapters"
       Always return chapter names, not just IDs
       Allowed columns: subject_id, chapter_id, order, plus chapter.name/description
+       - query_questions → SELECT from "questions_testquestions" + "questions_questioncontents"
+      Must JOIN "questions_questioncontents" ON questions_testquestions.id = questions_testquestions.test_question_id
+      Allowed columns:
+        questions_testquestions.id_number, questions_testquestions.question_type, questions_testquestions.level, 
+        questions_questioncontents.question, questions_questioncontents.solution_description, questions_questioncontents.sub_questions
+
+    🔹 If user input contains an id_number (like KCGFARFSRPM0002), 
+    always fetch the question + solution_description 
+    by joining questions_testquestions with questions_questioncontents.
+
+    🔹 If user asks "solution", "answer", "explain", return solution_description.  
+
+    🔹 If user asks "give me the question", return the question field.  
+
+    🔹 If both are asked, return both question and solution.  
+
+    Examples:
+    - "Give me question KCGFARFSRPM0002" → return question
+    - "KCGFARFSRPM0002 ka solution" → return solution_description
+    - "Explain KCGFARFSRPM0002" → return question + solution_description
+
     `;
 }
