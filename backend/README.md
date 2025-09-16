@@ -44,6 +44,15 @@ OPENROUTER_API_KEY=your_openrouter_api_key_here
 SITE_URL=http://localhost:3000
 SITE_NAME=Agent App
 
+# OpenAI for embeddings
+OPENAI_API_KEY=your_openai_api_key_here
+
+# ChromaDB
+CHROMA_HOST=localhost
+CHROMA_PORT=8000
+CHROMA_SSL=false
+CHROMA_PDF_COLLECTION=kcglobed_pdfs
+
 # Server Configuration
 PORT=3001
 NODE_ENV=development
@@ -69,6 +78,27 @@ Production mode:
 npm run build
 npm start
 ```
+
+## PDF → Chroma Ingestion (LangChain + OpenAI)
+
+- Loads PDFs, chunks with recursive splitter, embeds with OpenAI `text-embedding-3-small`, and upserts to ChromaDB.
+
+### Install extras
+```bash
+npm i langchain @langchain/openai @langchain/community pdf-parse
+```
+
+### Run Chroma server (Docker example)
+```bash
+docker run -p 8000:8000 chromadb/chroma:0.5.4
+```
+
+### Ingest a PDF
+```bash
+npm run ingest:pdf -- ./path/to/file.pdf
+```
+
+Environment variables used: `OPENAI_API_KEY`, `CHROMA_HOST`, `CHROMA_PORT`, `CHROMA_SSL`, `CHROMA_PDF_COLLECTION`.
 
 ## API Endpoints
 

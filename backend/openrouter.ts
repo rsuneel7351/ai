@@ -2,7 +2,6 @@ import axios from 'axios';
 import dotenv from 'dotenv';
 import { ChromaClient } from "chromadb";
 import OpenAI from "openai";
-import pool from './database';
 import { buildToolContext, TOOLS } from './tools';
 dotenv.config();
 interface OpenAIResponse {
@@ -20,20 +19,8 @@ interface OpenRouterMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
 }
-
-interface OpenRouterResponse {
-  choices: Array<{
-    message: {
-      content: string;
-    };
-  }>;
-}
-
-
 export class OpenRouterService {
   private apiKey: string;
-  private siteUrl: string;
-  private siteName: string;
   private chroma: ChromaClient;
   private openai: OpenAI;
   private openAiKey: string
@@ -42,11 +29,9 @@ export class OpenRouterService {
   constructor() {
     this.openAiKey = process.env.OPENAI_API_KEY || ""
     this.openai = new OpenAI({
-      apiKey: this.openAiKey, // set in .env
+      apiKey: this.openAiKey, 
     })
     this.apiKey = process.env.OPENROUTER_API_KEY || "";
-    this.siteUrl = process.env.SITE_URL || "http://localhost:3000";
-    this.siteName = process.env.SITE_NAME || "Agent App";
     this.chroma = new ChromaClient({
       host: "localhost",
       port: 8000,
@@ -134,9 +119,45 @@ export class OpenRouterService {
     }
   }
 
+  private async fetchPdfAnswer(query: string): Promise<string | null> {
+    try {
+      const collection = await this.chroma.getOrCreateCollection({
+        name: "kcglobed_pdfs",
+        embeddingFunction: {
+          generate: async (texts: string[]) => {
+            console.log("Embedding with OpenRouter (PDF query):", texts);
+            return Promise.all(texts.map((t) => this.embedText(t)));
+          },
+        },
+      });
+
+      const results = await collection.query({
+        queryTexts: [query],
+        nResults: 3,
+      });
+
+      if (results.documents && results.documents[0].length > 0) {
+        return results.documents[0]
+          .map((doc: any, i: number) => {
+            const meta = results.metadatas?.[0]?.[i];
+            return `📖 From PDF (chunk ${i + 1}):\n${doc}`;
+          })
+          .join("\n\n");
+      }
+
+      return null;
+    } catch (err) {
+      console.error("❌ PDF fetch error:", err);
+      return null;
+    }
+  }
 
   async generateReply(userMessage: string, userId: number): Promise<string> {
     const blogContext = await this.fetchBlogAnswer(userMessage);
+    const pdfContext = await this.fetchPdfAnswer(userMessage);
+    let combinedContext = "";
+    if (blogContext) combinedContext += `\n\n📰 Blog context:\n${blogContext}`;
+    if (pdfContext) combinedContext += `\n\n📖 PDF context:\n${pdfContext}`;
     const history: OpenRouterMessage[] = this.userHistories.get(userId) ?? [];
 
     const systemMessage: OpenRouterMessage = {
@@ -171,17 +192,23 @@ export class OpenRouterService {
       - courses_chapters
       - courses_subjects
       - courses_course
-      - questions_testquestions 
-      - questions_questioncontents
 
     ⚠️ Rules for tools:  
     - Only SELECT queries are allowed.  
     - Only allowed columns should be accessed.  
     - For course-subject queries, always return **subject names instead of IDs**.  
     - Never invent data — always fetch from the database when relevant.  
-    
-    📚 Context:  
-    ${blogContext ? `Use the following blog context to enrich your answer:\n${blogContext}` : "No blog context available."}
+  📚 Context:  
+    📚 Internal Context (for grounding only, do NOT mention explicitly in answers):  
+      ${combinedContext || "No external context available."}
+
+      ⚠️ Rules:  
+      - Always use the provided context (blogs, PDFs) as the **primary source of truth**.  
+      - If the context is available, ground your answer strictly in it. Do not invent details.  
+      - If the context does not answer the question, politely say that the information is not available in the knowledge base.  
+      - Only fall back to your general knowledge if **no context is provided at all**.  
+
+
     
     📝 Style guidelines for answers:  
     - Be descriptive and explanatory, like a finance instructor.  
@@ -230,8 +257,6 @@ export class OpenRouterService {
         ]);
       }
     }
-
-    // ✅ Normal reply if no tool
     return reply;
   }
 

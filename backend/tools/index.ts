@@ -45,7 +45,7 @@ export const TOOLS: Record<
     query_chapters: {
         execute: async ({ sql }) => {
             if (!sql.toLowerCase().includes("courses_chapters")) {
-                return { rows: [], error: "Query must target courses_chapters." };
+                return { rows: [], error: "Query must target courses_`chapters." };
             }
             const result = await pool.query(sql);
             return { rows: result.rows };
@@ -71,12 +71,27 @@ export const TOOLS: Record<
     },
     query_questions: {
         execute: async ({ sql }) => {
-            if (
-                !sql.toLowerCase().includes("questions_testquestions") ||
-                !sql.toLowerCase().includes("questions_questioncontents")
-            ) {
-                return { rows: [], error: "Query must target questions_testquestions or questions_questioncontents." };
+            const lowerSql = sql.toLowerCase();
+            // Allow these tables in query
+            const allowedTables = [
+                "questions_testquestions",
+                "questions_questioncontents",
+                "questions_questionoptions",
+            ];
+
+            const hasAllowedTable = allowedTables.some((tbl) =>
+                lowerSql.includes(tbl)
+            );
+
+            if (!hasAllowedTable) {
+                return {
+                    rows: [],
+                    error:
+                        "Query must target one of: questions_testquestions, questions_questioncontents, or questions_questionoptions.",
+                };
             }
+
+            // Always return rows from DB
             const result = await pool.query(sql);
             return { rows: result.rows };
         },
@@ -117,21 +132,38 @@ export function buildToolContext() {
       Allowed columns:
         questions_testquestions.id_number, questions_testquestions.question_type, questions_testquestions.level, 
         questions_questioncontents.question, questions_questioncontents.solution_description, questions_questioncontents.sub_questions
+- query_questions → SELECT from "questions_testquestions" + "questions_questioncontents"
+    Must JOIN "questions_questioncontents"
+    ON questions_testquestions.id = questions_questioncontents.test_question_id
+    Allowed columns:
+      questions_testquestions.id_number,
+      questions_testquestions.question_type,
+      questions_testquestions.level,
+      questions_testquestions.right_option_id,
+      questions_questioncontents.question,
+      questions_questioncontents.solution_description,
+      questions_questioncontents.sub_questions,
+      questions_questionoptions.option
 
-    🔹 If user input contains an id_number (like KCGFARFSRPM0002), 
-    always fetch the question + solution_description 
-    by joining questions_testquestions with questions_questioncontents.
+    🔹 If user input contains an id_number (like KCGFARFSRPM0002),
+    always fetch the question + solution_description.
 
     🔹 If user asks "solution", "answer", "explain", return solution_description.  
+    🔹 If user asks "give me the question", return the question text.  
+    🔹 If both are asked, return both.  
 
-    🔹 If user asks "give me the question", return the question field.  
+    🔹 If user asks "options" for an id_number,
+    fetch **id + option (text)** from "questions_questionoptions"
+    where test_question_id matches questions_testquestions.id.
 
-    🔹 If both are asked, return both question and solution.  
+    🔹 If user asks "correct option" for an id_number,
+    fetch option text from "questions_questionoptions"
+    where id = questions_testquestions.right_option_id.
 
-    Examples:
-    - "Give me question KCGFARFSRPM0002" → return question
+    ✅ Examples:
+    - "Give me question KCGFARFSRPM0002" → return question text
     - "KCGFARFSRPM0002 ka solution" → return solution_description
     - "Explain KCGFARFSRPM0002" → return question + solution_description
-
-    `;
+    - "Give the options for KCGFARFSRPM0002" → return all option texts
+    - "Give the correct option for KCGFARFSRPM0002" → return correct option text only`;
 }
