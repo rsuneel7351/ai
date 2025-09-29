@@ -8,7 +8,8 @@
     "dev": "nodemon --watch ./ --ext ts,js,json --exec ts-node server.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "ingest:pdf": "ts-node scripts/ingest-pdf.ts"
+    "ingest:pdf": "ts-node scripts/ingest-pdf.ts",
+    "ingest:website": "ts-node scripts/ingest-website.ts"
   },
   "dependencies": {
     "@langchain/core": "^0.3.76",

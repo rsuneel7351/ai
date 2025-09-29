@@ -60,7 +60,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         .trim()
         .split(/\n/)
         .map((line) => line.replace(/^[-*]\s+/, '').trim())
-        .map((item) => `<li>${item}</li>`) 
+        .map((item) => `<li>${item}</li>`)
         .join('');
       return `<ul class="list-disc pl-5 my-2">${items}</ul>`;
     });
@@ -92,14 +92,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
 
       <div
         className={`max-w-[85%] sm:max-w-[75%] md:max-w-[65%] px-4 py-2 rounded-2xl break-words ${isBot
-            ? "bg-chat-bot text-chat-bot-foreground rounded-bl-md"
-            : "bg-chat-primary text-chat-primary-foreground rounded-br-md"
+          ? "bg-chat-bot text-chat-bot-foreground rounded-bl-md"
+          : "bg-chat-primary text-chat-primary-foreground rounded-br-md"
           }`}
       >
         {/* Render HTML content safely */}
         <div
           className="text-sm leading-relaxed"
-          dangerouslySetInnerHTML={{ __html: convertMarkdownToHtml(message.content) }}
+          dangerouslySetInnerHTML={{ __html: message.content }}
         />
       </div>
 

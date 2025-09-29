@@ -29,7 +29,7 @@ export class OpenRouterService {
   constructor() {
     this.openAiKey = process.env.OPENAI_API_KEY || ""
     this.openai = new OpenAI({
-      apiKey: this.openAiKey, 
+      apiKey: this.openAiKey,
     })
     this.apiKey = process.env.OPENROUTER_API_KEY || "";
     this.chroma = new ChromaClient({
@@ -151,13 +151,47 @@ export class OpenRouterService {
       return null;
     }
   }
+  private async fetchWebsiteAnswer(query: string): Promise<string | null> {
+    try {
+      const collection = await this.chroma.getOrCreateCollection({
+        name: "kcglobed_websites",
+        embeddingFunction: {
+          generate: async (texts: string[]) => {
+            console.log("Embedding with OpenRouter (website query):", texts);
+            return Promise.all(texts.map((t) => this.embedText(t)));
+          },
+        },
+      });
+
+      const results = await collection.query({
+        queryTexts: [query],
+        nResults: 3,
+      });
+
+      if (results.documents && results.documents[0].length > 0) {
+        return results.documents[0]
+          .map((doc: any, i: number) => {
+            const meta = results.metadatas?.[0]?.[i];
+            return `🌐 From **${meta?.title || meta?.url}** (${meta?.url}):\n${doc}`;
+          })
+          .join("\n\n");
+      }
+
+      return null;
+    } catch (err) {
+      console.error("❌ Website fetch error:", err);
+      return null;
+    }
+  }
 
   async generateReply(userMessage: string, userId: number): Promise<string> {
     const blogContext = await this.fetchBlogAnswer(userMessage);
     const pdfContext = await this.fetchPdfAnswer(userMessage);
+    const websiteContext = await this.fetchWebsiteAnswer(userMessage);
     let combinedContext = "";
     if (blogContext) combinedContext += `\n\n📰 Blog context:\n${blogContext}`;
     if (pdfContext) combinedContext += `\n\n📖 PDF context:\n${pdfContext}`;
+    if (websiteContext) combinedContext += `\n\n🌐 Website context:\n${websiteContext}`;
     const history: OpenRouterMessage[] = this.userHistories.get(userId) ?? [];
 
     const systemMessage: OpenRouterMessage = {
@@ -216,7 +250,7 @@ export class OpenRouterService {
     - Keep all answers **finance-focused**.  
     - If the question is unrelated to finance courses or content, answer politely but do not include unrelated topics.  
     
-    Your responses should always sound **authoritative, professional, and finance-oriented**, and only call tools when necessary.
+    Your responses should always in the html with proper style and indentation and other html style factor, sound **authoritative, professional, and finance-oriented**, and only call tools when necessary.
       `
     };
 
