@@ -3,6 +3,11 @@ import dotenv from 'dotenv';
 import { ChromaClient } from "chromadb";
 import OpenAI from "openai";
 import { buildToolContext, TOOLS } from './tools';
+import { WebBrowser } from "langchain/tools/webbrowser";
+import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
+import { allPages } from './contant';
+import { cosineSimilarity } from './utils';
+import pLimit from "p-limit";
 dotenv.config();
 interface OpenAIResponse {
   id: string;
@@ -25,8 +30,14 @@ export class OpenRouterService {
   private openai: OpenAI;
   private openAiKey: string
   private userHistories: Map<number, OpenRouterMessage[]> = new Map();
-
+  private browser: WebBrowser
+  private pageEmbeddingCache: Map<string, number[]> = new Map();
+  private websiteCache: Map<string, string> = new Map();
   constructor() {
+
+    const lcModel = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 });
+    const embeddings = new OpenAIEmbeddings();
+    this.browser = new WebBrowser({ model: lcModel, embeddings });
     this.openAiKey = process.env.OPENAI_API_KEY || ""
     this.openai = new OpenAI({
       apiKey: this.openAiKey,
@@ -42,6 +53,16 @@ export class OpenRouterService {
       throw new Error("OPENROUTER_API_KEY is required");
     }
   }
+  async precomputePageEmbeddings(allPages: string[]) {
+    for (const url of allPages) {
+      if (!this.pageEmbeddingCache.has(url)) {
+        const embedding = await this.embedText(url);
+        this.pageEmbeddingCache.set(url, embedding);
+      }
+    }
+    console.log("✅ All page embeddings precomputed");
+  }
+
   async embedText(text: string): Promise<number[]> {
     const response = await this.openai.embeddings.create({
       model: "text-embedding-3-small",
@@ -151,47 +172,58 @@ export class OpenRouterService {
       return null;
     }
   }
-  private async fetchWebsiteAnswer(query: string): Promise<string | null> {
-    try {
-      const collection = await this.chroma.getOrCreateCollection({
-        name: "kcglobed_websites",
-        embeddingFunction: {
-          generate: async (texts: string[]) => {
-            console.log("Embedding with OpenRouter (website query):", texts);
-            return Promise.all(texts.map((t) => this.embedText(t)));
-          },
-        },
-      });
 
-      const results = await collection.query({
-        queryTexts: [query],
-        nResults: 3,
-      });
+  private async fetchWebsiteLiveAnswer(query: string, urls: string[]): Promise<string | null> {
+    // Return cached result if exists
+    if (this.websiteCache.has(query)) return this.websiteCache.get(query)!;
 
-      if (results.documents && results.documents[0].length > 0) {
-        return results.documents[0]
-          .map((doc: any, i: number) => {
-            const meta = results.metadatas?.[0]?.[i];
-            return `🌐 From **${meta?.title || meta?.url}** (${meta?.url}):\n${doc}`;
-          })
-          .join("\n\n");
-      }
+    // Embed the query
+    const queryEmbedding = await this.embedText(query);
 
-      return null;
-    } catch (err) {
-      console.error("❌ Website fetch error:", err);
-      return null;
-    }
+    // Compute similarity with precomputed page embeddings
+    const similarities = urls
+      .map(url => ({
+        url,
+        sim: cosineSimilarity(queryEmbedding, this.pageEmbeddingCache.get(url) || [])
+      }))
+      .sort((a, b) => b.sim - a.sim)
+      .slice(0, 5); // top 5 relevant pages
+
+    const limit = pLimit(3); // max 3 concurrent browser requests
+    const tasks = similarities.map(({ url }) =>
+      limit(async () => {
+        try {
+          const result = await this.browser.invoke(`"${url}","${query}"`);
+          if (result && !result.includes("Not found")) {
+            return `✅ Found on <a href="${url}">${url}</a><br/><pre>${result}</pre>`;
+          }
+        } catch (err) {
+          console.error(`❌ Error browsing ${url}:`, err);
+        }
+        return null;
+      })
+    );
+
+    const results = await Promise.all(tasks);
+    const firstMatch = results.find(r => r !== null) ?? null;
+
+    // Cache result for future
+    if (firstMatch) this.websiteCache.set(query, firstMatch);
+
+    return firstMatch;
   }
+
+
 
   async generateReply(userMessage: string, userId: number): Promise<string> {
     const blogContext = await this.fetchBlogAnswer(userMessage);
     const pdfContext = await this.fetchPdfAnswer(userMessage);
-    const websiteContext = await this.fetchWebsiteAnswer(userMessage);
+
+    const liveWebsiteContext = await this.fetchWebsiteLiveAnswer(userMessage, allPages);
     let combinedContext = "";
-    if (blogContext) combinedContext += `\n\n📰 Blog context:\n${blogContext}`;
+    // if (blogContext) combinedContext += `\n\n📰 Blog context:\n${blogContext}`;
     if (pdfContext) combinedContext += `\n\n📖 PDF context:\n${pdfContext}`;
-    if (websiteContext) combinedContext += `\n\n🌐 Website context:\n${websiteContext}`;
+    if (liveWebsiteContext) combinedContext += `🌐 Live website context:\n${liveWebsiteContext}\n\n`;
     const history: OpenRouterMessage[] = this.userHistories.get(userId) ?? [];
 
     const systemMessage: OpenRouterMessage = {
@@ -296,3 +328,44 @@ export class OpenRouterService {
 
 }
 export default OpenRouterService;
+
+
+
+
+
+
+
+
+
+// private async fetchWebsiteAnswer(query: string): Promise<string | null> {
+//   try {
+//     const collection = await this.chroma.getOrCreateCollection({
+//       name: "kcglobed_websites",
+//       embeddingFunction: {
+//         generate: async (texts: string[]) => {
+//           console.log("Embedding with OpenRouter (website query):", texts);
+//           return Promise.all(texts.map((t) => this.embedText(t)));
+//         },
+//       },
+//     });
+
+//     const results = await collection.query({
+//       queryTexts: [query],
+//       nResults: 3,
+//     });
+
+//     if (results.documents && results.documents[0].length > 0) {
+//       return results.documents[0]
+//         .map((doc: any, i: number) => {
+//           const meta = results.metadatas?.[0]?.[i];
+//           return `🌐 From **${meta?.title || meta?.url}** (${meta?.url}):\n${doc}`;
+//         })
+//         .join("\n\n");
+//     }
+
+//     return null;
+//   } catch (err) {
+//     console.error("❌ Website fetch error:", err);
+//     return null;
+//   }
+// }

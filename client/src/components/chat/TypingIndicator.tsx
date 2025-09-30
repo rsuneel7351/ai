@@ -14,10 +14,10 @@ export const TypingIndicator: React.FC = () => {
       <div className="flex-shrink-0 h-8 w-8 rounded-full bg-chat-bot flex items-center justify-center">
         <Bot className="h-4 w-4 text-chat-bot-foreground" />
       </div>
-      
+
       <div className="bg-chat-bot text-chat-bot-foreground px-4 py-3 rounded-2xl rounded-bl-md">
         <div className="flex items-center space-x-1">
-          <span className="text-sm text-muted-foreground">Bot is typing</span>
+          <span className="text-sm text-muted-foreground">Analyzing...</span>
           <div className="flex space-x-1">
             {[0, 1, 2].map((i) => (
               <motion.div

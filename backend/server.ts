@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { testConnection } from './database';
 import OpenRouterService from './openrouter';
+import { allPages } from './contant';
 
 
 dotenv.config();
@@ -18,8 +19,8 @@ const openRouterService = new OpenRouterService();
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://yourdomain.com'] 
+  origin: process.env.NODE_ENV === 'production'
+    ? ['https://yourdomain.com']
     : ['http://localhost:3000', 'http://localhost:5173'],
   credentials: true
 }));
@@ -87,6 +88,10 @@ const startServer = async () => {
       console.error('❌ Failed to connect to database. Server will not start.');
       process.exit(1);
     }
+    // 2️⃣ Precompute embeddings for all pages
+    console.log('⏳ Precomputing page embeddings...');
+    await openRouterService.precomputePageEmbeddings(allPages);
+    console.log('✅ Page embeddings ready');
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
